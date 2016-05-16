@@ -1,0 +1,126 @@
+---
+title: "Untitled"
+author: "Peter Bruno"
+date: "May 15, 2016"
+output: html_document
+---
+## Background and Overview
+This project is a final report for the Practical Machine Learning course. The goal of the project is to determine the manner in which participants performed exercises. A training set of data will be used with a learning algorithm to determine which types of activities the test data falls into. 
+
+Data collected from personal exercise trackers can be gathered easily. The data is easily quantified in terms of how much of an activity is done, but not how well the activity is completed. More information about the specifics of the experiment can be found on the website here: http://groupware.les.inf.puc-rio.br/har. 
+
+# Loading and Exploratory Analysis
+Specific R Libraries are needed for the analysis, some of the libraries called will also load others that are used. Specific packages are caret, randomForest, rpart.
+```{r, echo=FALSE}
+library(caret)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+```
+
+The data is previously downloaded and set in the current working directory. Then read in using csv read commands where we clearly mark NAs in the data.
+```{r}
+train<-read.csv("pml-training.csv",header=TRUE,na.strings=c("NA","#DIV/0",""))
+test<-read.csv("pml-testing.csv",header=TRUE,na.strings=c("NA","#DIV/0",""))
+```
+
+It is important to start cleaning up the data by removing data with near zero variance. and removing the first column as it is unnecessary. It is also helpful to remove the variables with more than two thirds NA, so variables with more than 66% NA are removed as well
+```{r}
+nzv <- nearZeroVar(train, saveMetrics=TRUE)
+train <- train[,nzv$nzv==FALSE]
+
+train <- train[c(-1)]
+
+train2 <- train
+for(i in 1:length(train)) {
+    if( sum( is.na( train[, i] ) ) /nrow(train) >= .66) {
+        for(j in 1:length(train2)) {
+            if( length( grep(names(train[i]), names(train2)[j]) ) == 1)  {
+                train2 <- train2[ , -j]
+            }   
+        } 
+    }
+}
+
+# Set back to the original variable name
+train <- train2
+rm(train2)
+```
+
+Then partitioning out a training and test dataset to use before the final test set.
+
+```{r}
+set.seed(100)
+intrain <- createDataPartition(train$classe, p=0.6, list=FALSE)
+mytrain <- train[intrain, ]
+mytest <- train[-intrain, ]
+dim(mytrain); dim(mytest)
+```
+
+Transform the datasets so that they match appropriately.
+```{r}
+clean1 <- colnames(mytrain)
+clean2 <- colnames(mytrain[, -58])  # remove the classe column
+mytest <- mytest[clean1]         # allow only variables in mytest that are also in mytrain
+test <- test[clean2]             # allow only variables in testing that are also in mytrain
+
+dim(mytest)
+```
+
+The data has to be coerced into the same type for proper analysis
+```{r}
+for (i in 1:length(test) ) {
+    for(j in 1:length(train)) {
+        if( length( grep(names(train[i]), names(test)[j]) ) == 1)  {
+            class(test[j]) <- class(mytrain[i])
+        }      
+    }      
+}
+
+# To get the same class between test and mytrain
+test <- rbind(mytrain[2, -58] , test)
+test <- test[-1,]
+```
+
+```{r}
+modFit <- rpart(classe ~ ., data=mytrain, method="class")
+```
+
+```{r}
+predictions <- predict(modFit, mytest, type = "class")
+cmtree <- confusionMatrix(predictions, mytest$classe)
+cmtree
+```
+
+Plotting some results from our Decision Tree Confusion Matrix
+```{r}
+plot(cmtree$table, col = cmtree$byClass, main = paste("Decision Tree Confusion Matrix Accuracy =", round(cmtree$overall['Accuracy'], 4)))
+```
+
+# Random Forest Prediction
+```{r}
+set.seed(101)
+modFit2 <- randomForest(classe ~ ., data=mytrain)
+prediction2 <- predict(modFit2, mytest, type = "class")
+cmrf <- confusionMatrix(prediction2, mytest$classe)
+cmrf
+```
+
+Showing the plot of our random forests
+```{r}
+plot(modFit2,main="Random Forest Predictions and Trees")
+```
+
+```{r}
+plot(cmrf$table, col = cmtree$byClass, main = paste("Random Forest Confusion Matrix Accuracy =", round(cmrf$overall['Accuracy'], 4)))
+```
+
+The Random Forests give a higher accuracy with 0.9991 than the Decision Tree (0.8715) method so that is the method used on the final test data. 
+
+# Predicting Results on Final Test Data
+```{r}
+prediction2 <- predict(modFit2, test, type = "class")
+prediction2
+```
+
+Our Final results are correct based on the quiz and so we can also assume our predictive model is reasonably correct.
